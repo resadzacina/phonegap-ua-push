@@ -74,13 +74,13 @@ Please contact support@urbanairship.com for any issues integrating or using this
         <preference name="com.urbanairship.auto_launch_message_center" value="true | false" />
 
         <!-- iOS 10 alert foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_alert" value="true"/>
+        <preference name="com.urbanairship.ios_foreground_notification_presentation_alert" value="true | false"/>
 
         <!-- iOS 10 badge foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_badge" value="true"/>
+        <preference name="com.urbanairship.ios_foreground_notification_presentation_badge" value="true | false"/>
 
         <!-- iOS 10 sound foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_sound" value="true"/>
+        <preference name="com.urbanairship.ios_foreground_notification_presentation_sound" value="true | false"/>
 
 
 4. Enable user notifications
@@ -95,6 +95,10 @@ Please contact support@urbanairship.com for any issues integrating or using this
 Enable Push Notifications in the project editor's Capabilities pane:
 
 ![Alt text](phonegap-enable-push.png?raw=true "Enable Push Notifications")
+
+To add support for iOS 10 notification attachments, you will need to create a
+notification service extension. Detailed steps can be found
+[here](http://docs.urbanairship.com/platform/phonegap.html#setup).
 
 ### Sample
 
