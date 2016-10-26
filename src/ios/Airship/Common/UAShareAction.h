@@ -36,7 +36,7 @@
  *
  * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush,
  * UASituationWebViewInvocation, UASituationManualInvocation,
- * UASituationForegroundInteractiveButton, and UASituationAutomation
+ * and UASituationForegroundInteractiveButton
  *
  * Default predicate: Rejects situation UASituationForegroundPush.
  *

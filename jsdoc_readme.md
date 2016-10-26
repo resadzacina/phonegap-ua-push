@@ -35,9 +35,6 @@
 
         <!-- Override the Android notification icon -->
         <preference name="com.urbanairship.notification_icon" value="ic_notification" />
-
-        <!-- Override the Android notification large icon -->
-        <preference name="com.urbanairship.notification_large_icon" value="ic_notification_large" />
     
         <!-- Override the Android notification sound (sound file should be in res/raw)-->
         <preference name="com.urbanairship.notification_sound" value="push" />
@@ -47,12 +44,3 @@
 
         <!-- Clear the iOS badge on launch -->
         <preference name="com.urbanairship.clear_badge_onlaunch" value="true | false" />
-
-        <!-- iOS 10 alert foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_alert" value="true"/>
-
-        <!-- iOS 10 badge foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_badge" value="true"/>
-
-        <!-- iOS 10 sound foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_sound" value="true"/>

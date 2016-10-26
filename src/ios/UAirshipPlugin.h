@@ -31,7 +31,7 @@
 /**
  * The Urban Airship Cordova plugin.
  */
-@interface UAirshipPlugin : CDVPlugin <UARegistrationDelegate, UAPushNotificationDelegate, UAInboxDelegate>
+@interface UAirshipPlugin : CDVPlugin <UARegistrationDelegate, UAPushNotificationDelegate>
 
 /**
  * Enables or disables user push notifications.
@@ -41,15 +41,6 @@
  * @param command The cordova command.
  */
 - (void)setUserNotificationsEnabled:(CDVInvokedUrlCommand *)command;
-
-/**
- * Enables or disables display ASAP mode for in-app messages.
- *
- * Expected arguments: Boolean
- *
- * @param command The cordova command.
- */
-- (void)setDisplayASAPEnabled:(CDVInvokedUrlCommand *)command;
 
 /**
  * Checks if user push notifications are enabled or not.
@@ -66,15 +57,6 @@
  * @param command The cordova command.
  */
 - (void)getLaunchNotification:(CDVInvokedUrlCommand *)command;
-
-/**
- * Returns the last received deep link.
- *
- * Expected arguments: Boolean - `YES` to clear the deep link.
- *
- * @param command The cordova command.
- */
-- (void)getDeepLink:(CDVInvokedUrlCommand *)command;
 
 /**
  * Returns the channel ID.
@@ -233,17 +215,6 @@
 - (void)setAnalyticsEnabled:(CDVInvokedUrlCommand *)command;
 
 /**
- * Sets associated custom identifiers for use with the Connect data stream.
- *
- * Previous identifiers will be replaced by the new identifiers each time setAssociateIdentifier is called. It is a set operation.
- *
- * Expected arguments: An array of strings containing the identifier and key.
- *
- * @param command The cordova command.
- */
-- (void)setAssociatedIdentifier:(CDVInvokedUrlCommand *)command;
-
-/**
  * Checks if analytics is enabled or not.
  *
  * @param command The cordova command.
@@ -283,6 +254,13 @@
 - (void)isBackgroundLocationEnabled:(CDVInvokedUrlCommand *)command;
 
 /**
+ * Records the current location.
+ *
+ * @param command The cordova command.
+ */
+- (void)recordCurrentLocation:(CDVInvokedUrlCommand *)command;
+
+/**
  * Runs an Urban Airship action.
  *
  * Expected arguments: String - action name, * - the action value
@@ -316,11 +294,20 @@
 - (void)editChannelTagGroups:(CDVInvokedUrlCommand *)command;
 
 /**
- * Registers a listener for events.
+ * Registers the channel listener. Any channel registration updates will
+ * be sent to the command's callbackID.
  *
  * @param command The cordova command.
  */
-- (void)registerListener:(CDVInvokedUrlCommand *)command;
+- (void)registerChannelListener:(CDVInvokedUrlCommand *)command;
+
+/**
+ * Registers the push received listener. Any push received events will
+ * be sent to the command's callbackID.
+ *
+ * @param command The cordova command.
+ */
+- (void)registerPushListener:(CDVInvokedUrlCommand *)command;
 
 /**
  * Display the given message without animation.
@@ -328,6 +315,14 @@
  * @pararm message The message.
  */
 - (void)displayMessageCenter:(CDVInvokedUrlCommand *)command;
+
+/**
+ * Registers the inbox listener. Any inbox updates
+ * will be sent to the command's callbackID.
+ *
+ * @param command The cordova command.
+ */
+- (void)registerInboxListener:(CDVInvokedUrlCommand *)command;
 
 /**
  * Gets the inbox listing.
@@ -378,12 +373,5 @@
  * @param command The cordova command.
  */
 - (void)refreshInbox:(CDVInvokedUrlCommand *)command;
-
-/**
- * Checks if app notifications are enabled or not.
- *
- * @param command The cordova command.
- */
-- (void)isAppNotificationsEnabled:(CDVInvokedUrlCommand *)command;
 
 @end

@@ -35,8 +35,7 @@
  *
  * Valid situations: UASituationLaunchedFromPush,
  * UASituationWebViewInvocation, UASituationManualInvocation,
- * UASituationForegroundInteractiveButton, UASituationBackgroundInteractiveButton,
- * and UASituationAutomation
+ * UASituationForegroundInteractiveButton, and UASituationBackgroundInteractiveButton
  *
  * Result value: The arguments value.
  *

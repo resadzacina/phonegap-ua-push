@@ -52,7 +52,7 @@ extern NSUInteger const UAAssociatedIdentifiersMaxCharacterCount;
 
 /**
  * Factory method to create an associated identifiers instance with a dictionary
- * of custom identifiers (containing strings only).
+ * of custom identifiers.
  * @return The created associated identifiers.
  */
 #if __has_feature(objc_generics)
@@ -71,10 +71,6 @@ extern NSUInteger const UAAssociatedIdentifiersMaxCharacterCount;
  */
 @property (nonatomic, copy, nullable) NSString *vendorID;
 
-/**
- * Indicates whether the user has limited ad tracking.
- */
-@property (nonatomic, assign) BOOL advertisingTrackingEnabled;
 
 /**
  * A map of all the associated identifiers.

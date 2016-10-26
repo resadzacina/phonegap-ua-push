@@ -44,17 +44,6 @@ function callNative(success, failure, name, args) {
   exec(success, failure, "UAirship", name, args)
 }
 
-// Helper method to run an action
-function _runAction(actionName, actionValue, success, failure) {
-  var successWrapper = function(result) {
-    if (success) {
-      success(result.value)
-    }
-  }
-
-  callNative(successWrapper, failure, "runAction", [actionName, actionValue])
-}
-
 /**
  * Helper object to edit tag groups.
  *
@@ -126,26 +115,29 @@ function TagGroupEditor(nativeMethod) {
     return editor
 }
 
-document.addEventListener("deviceready", function() {
-    callNative(function(e) {
-      console.log("Firing document event: " + e.eventType)
-      cordova.fireDocumentEvent(e.eventType, e.eventData)
-    }, null, "registerListener")
-}, false)
+callNative(function(registration) {
+  console.log("Firing document event for registration update.")
+  cordova.fireDocumentEvent("urbanairship.registration", registration)
+}, null, "registerChannelListener")
+
+
+callNative(function(push) {
+  console.log("Firing document event for push event.")
+  cordova.fireDocumentEvent("urbanairship.push", push)
+}, null, "registerPushListener")
+
+// Listen for inbox updates
+callNative(function() {
+  console.log("Firing document event for inbox update.")
+  cordova.fireDocumentEvent("urbanairship.inbox_updated")
+}, null, "registerInboxListener")
+
 
 /**
  * @module UrbanAirship
  */
 module.exports = {
 
-
-  /**
-   * Event fired when a new deep link is received.
-   *
-   * @event "urbanairship.deep_link"
-   * @type {object}
-   * @param {string} [deepLink] The deep link.
-   */
 
   /**
    * Event fired when a channel registration occurs.
@@ -173,16 +165,6 @@ module.exports = {
    */
 
   /**
-   * Event fired when notification opened.
-   *
-   * @event "urbanairship.notification_opened"
-   * @type {object}
-   * @param {string} message The push alert message.
-   * @param {object} extras Any push extras.
-   * @param {number} [notification_id] The Android notification ID.
-   */
-
-  /**
    * Enables or disables user notifications.
    *
    * @param {boolean} enabled true to enable notifications, false to disable.
@@ -196,19 +178,6 @@ module.exports = {
   },
 
   /**
-   * Enables or disables display ASAP mode for in-app messages.
-   *
-   * @param {boolean} enabled true to enable display ASAP mode, false to disable.
-   * @param {function} [success] Success callback.
-   * @param {function(message)} [failure] Failure callback.
-   * @param {string} failure.message The error message.
-   */
-  setDisplayASAPEnabled: function(enabled, success, failure) {
-    argscheck.checkArgs('*FF', 'UAirship.setDisplayASAPEnabled', arguments)
-    callNative(success, failure, "setDisplayASAPEnabled", [!!enabled])
-  },
-
-  /**
    * Checks if user notifications are enabled or not.
    *
    * @param {function(enabled)} success Success callback.
@@ -219,21 +188,6 @@ module.exports = {
   isUserNotificationsEnabled: function(success, failure) {
     argscheck.checkArgs('fF', 'UAirship.isUserNotificationsEnabled', arguments)
     callNative(success, failure, "isUserNotificationsEnabled")
-  },
-
-
-  /**
-   * Checks if app notifications are enabled or not. Its possible to have `userNotificationsEnabled`
-   * but app notifications being disabled if the user opted out of notifications.
-   *
-   * @param {function(enabled)} success Success callback.
-   * @param {boolean} success.enabled Flag indicating if app notifications is enabled or not.
-   * @param {function(message)} [failure] Failure callback.
-   * @param {string} failure.message The error message.
-   */
-  isAppNotificationsEnabled: function(success, failure) {
-    argscheck.checkArgs('fF', 'UAirship.isAppNotificationsEnabled', arguments)
-    callNative(success, failure, "isAppNotificationsEnabled")
   },
 
   /**
@@ -264,20 +218,6 @@ module.exports = {
   getLaunchNotification: function(clear, success, failure) {
     argscheck.checkArgs('*fF', 'UAirship.getLaunchNotification', arguments)
     callNative(success, failure, "getLaunchNotification", [!!clear])
-  },
-
-  /**
-   * Returns the last received deep link.
-   *
-   * @param {Boolean} clear true to clear the deep link.
-   * @param {function(push)} success The function to call on success.
-   * @param {string} success.deepLink The deep link.
-   * @param {failureCallback} [failure] The function to call on failure.
-   * @param {string} failure.message The error message.
-   */
-  getDeepLink: function(clear, success, failure) {
-    argscheck.checkArgs('*fF', 'UAirship.getDeepLink', arguments)
-    callNative(success, failure, "getDeepLink", [!!clear])
   },
 
   /**
@@ -474,7 +414,14 @@ module.exports = {
    */
   runAction: function(actionName, actionValue, success, failure) {
     argscheck.checkArgs('s*FF', 'UAirship.runAction', arguments)
-    _runAction(actionName, actionValue, success, failure)
+
+    var successWrapper = function(result) {
+      if (success) {
+        success(result.value)
+      }
+    }
+
+    callNative(successWrapper, failure, "runAction", [actionName, actionValue])
   },
 
   /**
@@ -493,20 +440,6 @@ module.exports = {
    */
   editChannelTagGroups: function() {
     return new TagGroupEditor('editChannelTagGroups')
-  },
-
-  /**
-   * Sets an associated identifier for the Connect data stream.
-   *
-   * @param {string} Custom key for identifier.
-   * @param {string} The identifier value.
-   * @param {function} [success] Success callback.
-   * @param {function(message)} [failure] Failure callback.
-   * @param {string} failure.message The error message.
-   */
-  setAssociatedIdentifier: function(key, identifier, success, failure) {
-    argscheck.checkArgs('ssFF', 'UAirship.setAssociatedIdentifier', arguments)
-    callNative(success, failure, "setAssociatedIdentifier", [key, identifier])
   },
 
   // Location
@@ -561,6 +494,18 @@ module.exports = {
   isBackgroundLocationEnabled: function(success, failure) {
     argscheck.checkArgs('fF', 'UAirship.isBackgroundLocationEnabled', arguments)
     callNative(success, failure, "isBackgroundLocationEnabled")
+  },
+
+  /**
+   * Records the current location.
+   *
+   * @param {function} [success] Success callback.
+   * @param {function(message)} [failure] Failure callback.
+   * @param {string} failure.message The error message.
+   */
+  recordCurrentLocation: function(success, failure) {
+    argscheck.checkArgs('FF', 'UAirship.recordCurrentLocation', arguments)
+    callNative(success, failure, "recordCurrentLocation")
   },
 
   /**
@@ -757,7 +702,6 @@ module.exports = {
   /**
    * Checks if notification sound is enabled or not.
    *
-   * @param {function(enabled)} success Success callback.
    * @param {boolean} success.enabled Flag indicating if sound is enabled or not.
    * @param {function(message)} [failure] Failure callback.
    * @param {string} failure.message The error message.
@@ -783,7 +727,6 @@ module.exports = {
   /**
    * Checks if notification vibration is enabled or not.
    *
-   * @param {function(enabled)} success Success callback.
    * @param {boolean} success.enabled Flag indicating if vibration is enabled or not.
    * @param {function(message)} [failure] Failure callback.
    * @param {string} failure.message The error message.
@@ -804,30 +747,5 @@ module.exports = {
   setVibrateEnabled: function(enabled, success, failure) {
     argscheck.checkArgs('*FF', 'UAirship.setVibrateEnabled', arguments)
     callNative(success, failure, "setVibrateEnabled", [!!enabled])
-  },
-
-  /**
-   * Adds a custom event.
-   *
-   * @param {object} event The custom event object.
-   * @param {string} event.name The event's name.
-   * @param {number} [event.value] The event's value.
-   * @param {string} [event.transactionId] The event's transaction ID.
-   * @param {object} [event.properties] The event's properties. Only numbers, booleans, strings, and array of strings are supported.
-   * @param {function} [success] Success callback.
-   * @param {function(message)} [failure] Failure callback.
-   * @param {string} failure.message The error message.
-   */
-  addCustomEvent: function(event, success, failure) {
-    argscheck.checkArgs('oFF', 'UAirship.addCustomEvent', arguments)
-
-    var actionArg = {
-      event_name: event.name,
-      event_value: event.value,
-      transaction_id: event.transactionId,
-      properties: event.properties
-    }
-
-    _runAction("add_custom_event_action", actionArg, success, failure)
   }
 }

@@ -27,15 +27,17 @@ package com.urbanairship.cordova;
 
 import android.Manifest;
 import android.app.NotificationManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.os.AsyncTask;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.LocalBroadcastManager;
 
 import com.urbanairship.Autopilot;
 import com.urbanairship.Logger;
@@ -48,10 +50,6 @@ import com.urbanairship.actions.ActionRunRequest;
 import com.urbanairship.actions.ActionValue;
 import com.urbanairship.actions.ActionValueException;
 import com.urbanairship.actions.LandingPageActivity;
-import com.urbanairship.cordova.events.DeepLinkEvent;
-import com.urbanairship.cordova.events.Event;
-import com.urbanairship.cordova.events.PushEvent;
-import com.urbanairship.cordova.events.NotificationOpenedEvent;
 import com.urbanairship.google.PlayServicesUtils;
 import com.urbanairship.json.JsonValue;
 import com.urbanairship.messagecenter.MessageActivity;
@@ -60,7 +58,6 @@ import com.urbanairship.push.TagGroupsEditor;
 import com.urbanairship.richpush.RichPushInbox;
 import com.urbanairship.richpush.RichPushMessage;
 import com.urbanairship.util.UAStringUtil;
-import com.urbanairship.util.HelperActivity;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
@@ -72,7 +69,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.lang.reflect.Method;
-import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
@@ -92,6 +88,31 @@ import java.util.concurrent.Executors;
 public class UAirshipPlugin extends CordovaPlugin {
 
     /**
+     * Local broadcast action for channel registration updates.
+     */
+    public static final String ACTION_CHANNEL_REGISTRATION = "com.urbanairship.cordova.ACTION_CHANNEL_REGISTRATION";
+
+    /**
+     * Error extra to indicate the channel registration failed.
+     */
+    public static final String EXTRA_ERROR = "com.urbanairship.cordova.EXTRA_ERROR";
+
+    /**
+     * Local broadcast action for push received events.
+     */
+    public static final String ACTION_PUSH_RECEIVED = "com.urbanairship.cordova.ACTION_PUSH_RECEIVED";
+
+    /**
+     * Push message extra.
+     */
+    public static final String EXTRA_PUSH = "com.urbanairship.cordova.EXTRA_PUSH";
+
+    /**
+     * Notification ID extra.
+     */
+    public static final String EXTRA_NOTIFICATION_ID = "com.urbanairship.cordova.EXTRA_NOTIFICATION_ID";
+
+    /**
      * List of Cordova "actions". To extend the plugin, add the action below and then define the method
      * with the signature `void <CORDOVA_ACTION>(JSONArray data, final CallbackContext callbackContext)`
      * and it will automatically be called. All methods will be executed in the ExecutorService. Any
@@ -101,12 +122,24 @@ public class UAirshipPlugin extends CordovaPlugin {
     private final static List<String> knownActions = Arrays.asList("setUserNotificationsEnabled", "setLocationEnabled", "setBackgroundLocationEnabled",
             "isUserNotificationsEnabled", "isSoundEnabled", "isVibrateEnabled", "isQuietTimeEnabled", "isInQuietTime", "isLocationEnabled", "isBackgroundLocationEnabled",
             "getLaunchNotification", "getChannelID", "getQuietTime", "getTags", "getAlias", "setAlias", "setTags", "setSoundEnabled", "setVibrateEnabled",
-            "setQuietTimeEnabled", "setQuietTime", "recordCurrentLocation", "clearNotifications", "registerListener", "setAnalyticsEnabled", "isAnalyticsEnabled",
-            "setNamedUser", "getNamedUser", "runAction", "editNamedUserTagGroups", "editChannelTagGroups", "displayMessageCenter", "markInboxMessageRead",
-            "deleteInboxMessage", "getInboxMessages", "displayInboxMessage", "overlayInboxMessage", "refreshInbox", "getDeepLink", "setAssociatedIdentifier",
-            "isAppNotificationsEnabled", "setDisplayASAPEnabled");
+            "setQuietTimeEnabled", "setQuietTime", "recordCurrentLocation", "clearNotifications", "registerPushListener", "registerChannelListener",
+            "setAnalyticsEnabled", "isAnalyticsEnabled", "setNamedUser", "getNamedUser", "runAction", "editNamedUserTagGroups", "editChannelTagGroups", "displayMessageCenter",
+            "registerInboxListener", "markInboxMessageRead", "deleteInboxMessage", "getInboxMessages", "displayInboxMessage", "overlayInboxMessage", "refreshInbox");
+
+    /**
+     * The launch push message. Set from the IntentReceiver.
+     */
+    public static PushMessage launchPushMessage = null;
+
+    /**
+     * The launch notification ID. Set from the IntentReceiver.
+     */
+    public static Integer launchNotificationId = null;
 
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
+    private BroadcastReceiver channelUpdateReceiver;
+    private BroadcastReceiver pushReceiver;
+    private RichPushInbox.Listener inboxListener;
 
     @Override
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
@@ -149,48 +182,85 @@ public class UAirshipPlugin extends CordovaPlugin {
         return true;
     }
 
-    @Override
-    public void onReset() {
-        super.onReset();
-        UAirshipPluginManager.shared().setListener(null);
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        UAirshipPluginManager.shared().setListener(null);
-    }
-
     /**
-     * Registers for events.
+     * Registers the push received listener. Any push received events will
+     * be sent to the callbackContext.
      *
      * @param data The call data.
      * @param callbackContext The callback context.
      */
-    void registerListener(JSONArray data, final CallbackContext callbackContext) {
-        if (callbackContext == null) {
-            UAirshipPluginManager.shared().setListener(null);
-            return;
+    void registerPushListener(JSONArray data, final CallbackContext callbackContext) {
+        Logger.debug("Listening for push events.");
+
+        LocalBroadcastManager manager = LocalBroadcastManager.getInstance(cordova.getActivity());
+
+        if (pushReceiver != null) {
+            manager.unregisterReceiver(pushReceiver);
         }
 
-        UAirshipPluginManager.shared().setListener(new UAirshipPluginManager.Listener() {
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(ACTION_PUSH_RECEIVED);
+        pushReceiver = new BroadcastReceiver() {
             @Override
-            public void onEvent(Event event) {
-                JSONObject eventData = new JSONObject();
+            public void onReceive(Context context, Intent intent) {
+                Logger.debug("Received push.");
 
-                try {
-                    eventData.putOpt("eventType", event.getEventName());
-                    eventData.putOpt("eventData", event.getEventData());
-                } catch (JSONException e) {
-                    Logger.error("Failed to create event: " + event);
-                    return;
-                }
+                PushMessage message = intent.getParcelableExtra(EXTRA_PUSH);
+                int notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1);
+                JSONObject data = notificationObject(message, notificationId != -1 ? notificationId : null);
 
-                PluginResult result = new PluginResult(PluginResult.Status.OK, eventData);
+                PluginResult result = new PluginResult(PluginResult.Status.OK, data);
                 result.setKeepCallback(true);
+
                 callbackContext.sendPluginResult(result);
             }
-        });
+        };
+
+        manager.registerReceiver(pushReceiver, intentFilter);
+    }
+
+    /**
+     * Registers the channel listener. Any channel registration updates will
+     * be sent to the callbackContext.
+     *
+     * @param data The call data.
+     * @param callbackContext The callback context.
+     */
+    void registerChannelListener(JSONArray data, final CallbackContext callbackContext) {
+        Logger.debug("Listening for channel updates.");
+
+        LocalBroadcastManager manager = LocalBroadcastManager.getInstance(cordova.getActivity());
+
+        if (channelUpdateReceiver != null) {
+            manager.unregisterReceiver(channelUpdateReceiver);
+        }
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(ACTION_CHANNEL_REGISTRATION);
+        channelUpdateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Logger.debug("Received channel update.");
+
+                JSONObject data = new JSONObject();
+                try {
+                    if (!intent.hasExtra(EXTRA_ERROR)) {
+                        data.put("channelID", UAirship.shared().getPushManager().getChannelId());
+                    } else {
+                        data.put("error", "Invalid registration.");
+                    }
+                } catch (JSONException e) {
+                    Logger.error("Error in channel registration", e);
+                }
+
+                PluginResult result = new PluginResult(PluginResult.Status.OK, data);
+                result.setKeepCallback(true);
+
+                callbackContext.sendPluginResult(result);
+            }
+        };
+
+        manager.registerReceiver(channelUpdateReceiver, intentFilter);
     }
 
     /**
@@ -221,20 +291,6 @@ public class UAirshipPlugin extends CordovaPlugin {
     }
 
     /**
-     * Enables or disables display ASAP mode for in-app messages.
-     * <p/>
-     * Expected arguments: Boolean
-     *
-     * @param data The call data.
-     * @param callbackContext The callback context.
-     */
-    void setDisplayASAPEnabled(JSONArray data, CallbackContext callbackContext) throws JSONException {
-        boolean enabled = data.getBoolean(0);
-        UAirship.shared().getInAppMessageManager().setDisplayAsapEnabled(enabled);
-        callbackContext.success();
-    }
-
-    /**
      * Checks if user notifications are enabled or not.
      *
      * @param data The call data.
@@ -257,13 +313,30 @@ public class UAirshipPlugin extends CordovaPlugin {
         boolean enabled = data.getBoolean(0);
 
         if (enabled && shouldRequestPermissions()) {
-            RequestPermissionsTask task = new RequestPermissionsTask(UAirship.getApplicationContext(), new RequestPermissionsTask.Callback() {
+            ActionRunRequest.createRequest(new Action() {
+                @NonNull
                 @Override
-                public void onResult(boolean enabled) {
-                    UAirship.shared().getLocationManager().setLocationUpdatesEnabled(enabled);
+                public ActionResult perform(ActionArguments arguments) {
+                    int[] result = requestPermissions(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION);
+                    for (int i = 0; i < result.length; i++) {
+                        if (result[i] == PackageManager.PERMISSION_GRANTED) {
+                            return ActionResult.newResult(ActionValue.wrap(true));
+                        }
+                    }
+
+                    return ActionResult.newResult(ActionValue.wrap(false));
+                }
+            }).run(new ActionCompletionCallback() {
+                @Override
+                public void onFinish(ActionArguments arguments, ActionResult result) {
+                    if (result.getValue().getBoolean(false)) {
+                        UAirship.shared().getLocationManager().setLocationUpdatesEnabled(true);
+                    }
+
+                    callbackContext.success();
                 }
             });
-            task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+
         } else {
             UAirship.shared().getLocationManager().setLocationUpdatesEnabled(enabled);
             callbackContext.success();
@@ -284,40 +357,6 @@ public class UAirshipPlugin extends CordovaPlugin {
         Context context = UAirship.getApplicationContext();
         return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_DENIED &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_DENIED;
-    }
-
-    private static class RequestPermissionsTask extends AsyncTask<String[], Void, Boolean> {
-
-        private final Context context;
-        private Callback callback;
-
-        public interface Callback {
-            void onResult(boolean enabled);
-        }
-
-        RequestPermissionsTask(Context context, Callback callback) {
-            this.context = context;
-            this.callback = callback;
-        }
-
-        @Override
-        protected Boolean doInBackground(String[]... strings) {
-            int[] result = HelperActivity.requestPermissions(context, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION);
-            for (int element : result) {
-                if (element == PackageManager.PERMISSION_GRANTED) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        @Override
-        protected void onPostExecute(Boolean result) {
-            if (callback != null) {
-                callback.onResult(result);
-            }
-        }
     }
 
     /**
@@ -409,29 +448,14 @@ public class UAirshipPlugin extends CordovaPlugin {
      * @param callbackContext The callback context.
      */
     void getLaunchNotification(JSONArray data, CallbackContext callbackContext) {
-        boolean clear = data.optBoolean(0, false);
-        NotificationOpenedEvent event = UAirshipPluginManager.shared().getLastLaunchNotificationEvent(clear);
+        JSONObject notificationObject = notificationObject(launchPushMessage, launchNotificationId);
 
-        if (event != null) {
-            callbackContext.success(event.getEventData());
-        } else {
-            callbackContext.success(new JSONObject());
+        if (data.optBoolean(0, false)) {
+            launchPushMessage = null;
+            launchNotificationId = null;
         }
-    }
 
-    /**
-     * Returns the last deep link.
-     * <p/>
-     * Expected arguments: Boolean - `YES` to clear the deep link
-     *
-     * @param data The call data.
-     * @param callbackContext The callback context.
-     */
-    void getDeepLink(JSONArray data, CallbackContext callbackContext) {
-        boolean clear = data.optBoolean(0, false);
-        DeepLinkEvent event = UAirshipPluginManager.shared().getLastDeepLinkEvent(clear);
-        String deepLink = event == null ? null : event.getDeepLink();
-        callbackContext.success(deepLink);
+        callbackContext.success(notificationObject);
     }
 
     /**
@@ -668,29 +692,7 @@ public class UAirshipPlugin extends CordovaPlugin {
     }
 
     /**
-     * Sets associated custom identifiers for use with the Connect data stream.
-     * <p/>
-     * Previous identifiers will be replaced by the new identifiers each time setAssociateIdentifier is called. It is a set operation.
-     * <p/>
-     * Expected arguments: String
-     *
-     * @param data The call data.
-     * @param callbackContext The callback context.
-     */
-    void setAssociatedIdentifier(JSONArray data, CallbackContext callbackContext) throws JSONException {
-        String key = data.getString(0);
-        String identifier = data.getString(1);
-        
-        UAirship.shared().getAnalytics()
-           .editAssociatedIdentifiers()
-           .addIdentifier(key, identifier)
-           .apply();
-
-        callbackContext.success();
-    }
-
-    /**
-     * Returns the named user ID.
+     * Sets the named user ID.
      * <p/>
      * Expected arguments: String
      *
@@ -698,13 +700,13 @@ public class UAirshipPlugin extends CordovaPlugin {
      * @param callbackContext The callback context.
      */
     void getNamedUser(JSONArray data, CallbackContext callbackContext) {
-        String namedUserId = UAirship.shared().getNamedUser().getId();
+        String namedUserId = UAirship.shared().getPushManager().getNamedUser().getId();
         namedUserId = namedUserId != null ? namedUserId : "";
         callbackContext.success(namedUserId);
     }
 
     /**
-     * Sets the named user ID.
+     * Returns the named user ID.
      *
      * @param data The call data.
      * @param callbackContext The callback context.
@@ -715,9 +717,9 @@ public class UAirshipPlugin extends CordovaPlugin {
             namedUserId = null;
         }
 
-        Logger.debug("Setting named user: " + namedUserId);
+        Logger.debug("Settings named user: " + namedUserId);
 
-        UAirship.shared().getNamedUser().setId(namedUserId);
+        UAirship.shared().getPushManager().getNamedUser().setId(namedUserId);
 
         callbackContext.success();
     }
@@ -733,7 +735,7 @@ public class UAirshipPlugin extends CordovaPlugin {
 
         Logger.debug("Editing named user tag groups: " + operations);
 
-        TagGroupsEditor editor = UAirship.shared().getNamedUser().editTagGroups();
+        TagGroupsEditor editor = UAirship.shared().getPushManager().getNamedUser().editTagGroups();
         applyTagGroupOperations(editor, operations);
         editor.apply();
 
@@ -838,9 +840,6 @@ public class UAirshipPlugin extends CordovaPlugin {
 
         Map<String, String> extras = new HashMap<String, String>();
         for (String key : message.getPushBundle().keySet()) {
-            if ("android.support.content.wakelockid".equals(key)) {
-                continue;
-            }
             extras.put(key, message.getPushBundle().getString(key));
         }
 
@@ -1068,14 +1067,28 @@ public class UAirshipPlugin extends CordovaPlugin {
     }
 
     /**
-     * Checks if app notifications are enabled or not.
+     * Registers the inbox listener.
      *
      * @param data The call data.
      * @param callbackContext The callback context.
-     * @throws JSONException
      */
-    void isAppNotificationsEnabled(JSONArray data, final CallbackContext callbackContext) throws JSONException {
-        int value = UAirship.shared().getPushManager().isOptIn() ? 1 : 0;
-        callbackContext.success(value);
+    void registerInboxListener(JSONArray data, final CallbackContext callbackContext) {
+        Logger.debug("Listening for inbox changes.");
+
+        if (inboxListener != null) {
+            UAirship.shared().getInbox().removeListener(inboxListener);
+        }
+
+        inboxListener = new RichPushInbox.Listener() {
+            @Override
+            public void onInboxUpdated() {
+                PluginResult result = new PluginResult(PluginResult.Status.OK, "inbox updated");
+                result.setKeepCallback(true);
+
+                callbackContext.sendPluginResult(result);
+            }
+        };
+
+        UAirship.shared().getInbox().addListener(inboxListener);
     }
 }

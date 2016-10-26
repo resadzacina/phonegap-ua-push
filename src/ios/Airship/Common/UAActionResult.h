@@ -103,7 +103,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  * Creates a UAActionResult with the supplied value. The `fetchResult` and `error` properties
- * default to UAActionFetchResultNoData and nil, respectively.
+ * default to UAActionFetchResultNone and nil, respectively.
  *
  * @param value An id typed value object.
  * @return An instance of UAActionResult.
@@ -122,13 +122,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  * Creates an "empty" UAActionResult with the value, fetch result and error set to
- * nil, UAActionFetchResultNoData, and nil, respectively.
+ * nil, UAActionFetchResultNone, and nil, respectively.
  */
 + (instancetype)emptyResult;
 
 /**
  * Creates a UAActionResult with the value and fetch result set to
- * nil and UAActionFetchResultNoData, respectively. The `error` property
+ * nil and UAActionFetchResultNone, respectively. The `error` property
  * is set to the supplied argument.
  *
  * @param error An instance of NSError.

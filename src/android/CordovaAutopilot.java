@@ -26,25 +26,16 @@
 package com.urbanairship.cordova;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.res.XmlResourceParser;
 import android.graphics.Color;
 import android.net.Uri;
-import android.support.annotation.NonNull;
+import android.support.v4.app.NotificationCompat;
 
 import com.urbanairship.AirshipConfigOptions;
 import com.urbanairship.Autopilot;
 import com.urbanairship.Logger;
 import com.urbanairship.UAirship;
-import com.urbanairship.actions.Action;
-import com.urbanairship.actions.ActionArguments;
-import com.urbanairship.actions.ActionRegistry;
-import com.urbanairship.actions.ActionResult;
-import com.urbanairship.actions.DeepLinkAction;
-import com.urbanairship.actions.OpenRichPushInboxAction;
-import com.urbanairship.actions.OverlayRichPushMessageAction;
 import com.urbanairship.push.notifications.DefaultNotificationFactory;
-import com.urbanairship.richpush.RichPushInbox;
 import com.urbanairship.util.UAStringUtil;
 
 import java.util.HashMap;
@@ -55,9 +46,6 @@ import java.util.Map;
  * The Urban Airship autopilot to automatically handle takeOff.
  */
 public class CordovaAutopilot extends Autopilot {
-
-    private static final String ACTION_AIRSHIP_READY = "com.urbanairship.AIRSHIP_READY";
-
     static final String UA_PREFIX = "com.urbanairship";
     static final String PRODUCTION_KEY = "com.urbanairship.production_app_key";
     static final String PRODUCTION_SECRET = "com.urbanairship.production_app_secret";
@@ -67,10 +55,8 @@ public class CordovaAutopilot extends Autopilot {
     static final String GCM_SENDER = "com.urbanairship.gcm_sender";
     static final String ENABLE_PUSH_ONLAUNCH = "com.urbanairship.enable_push_onlaunch";
     static final String NOTIFICATION_ICON = "com.urbanairship.notification_icon";
-    static final String NOTIFICATION_LARGE_ICON = "com.urbanairship.notification_large_icon";
     static final String NOTIFICATION_ACCENT_COLOR = "com.urbanairship.notification_accent_color";
     static final String NOTIFICATION_SOUND = "com.urbanairship.notification_sound";
-    static final String AUTO_LAUNCH_MESSAGE_CENTER = "com.urbanairship.auto_launch_message_center";
 
     // Enable/Disable features
     static final String ENABLE_ANALYTICS = "com.urbanairship.enable_analytics";
@@ -122,21 +108,10 @@ public class CordovaAutopilot extends Autopilot {
         String notificationIconName = pluginConfig.getString(NOTIFICATION_ICON, null);
         if (!UAStringUtil.isEmpty(notificationIconName)) {
             int id  = context.getResources().getIdentifier(notificationIconName, "drawable", context.getPackageName());
-            if (id != 0) {
+            if (id > 0) {
                 factory.setSmallIconId(id);
             } else {
                 Logger.error("Unable to find notification icon with name: " + notificationIconName);
-            }
-        }
-
-        // Notification large icon
-        String notificationLargeIconName = pluginConfig.getString(NOTIFICATION_LARGE_ICON, null);
-        if (!UAStringUtil.isEmpty(notificationLargeIconName)) {
-            int id  = context.getResources().getIdentifier(notificationLargeIconName, "drawable", context.getPackageName());
-            if (id != 0) {
-                factory.setLargeIcon(id);
-            } else {
-                Logger.error("Unable to find notification large icon with name: " + notificationLargeIconName);
             }
         }
 
@@ -152,61 +127,7 @@ public class CordovaAutopilot extends Autopilot {
             }
         }
 
-        airship.getActionRegistry().getEntry(DeepLinkAction.DEFAULT_REGISTRY_NAME).setDefaultAction(new DeepLinkAction() {
-            @Override
-            public ActionResult perform(@NonNull ActionArguments arguments) {
-                String deepLink = arguments.getValue().getString();
-                if (deepLink != null) {
-                    UAirshipPluginManager.shared().deepLinkReceived(deepLink);
-                }
-                return ActionResult.newResult(arguments.getValue());
-            }
-        });
-
-
-        final boolean autoLaunchMessageCenter = pluginConfig.getBoolean(AUTO_LAUNCH_MESSAGE_CENTER, true);
-        airship.getActionRegistry()
-                .getEntry(OverlayRichPushMessageAction.DEFAULT_REGISTRY_NAME)
-                .setPredicate(new ActionRegistry.Predicate() {
-                    @Override
-                    public boolean apply(ActionArguments actionArguments) {
-                        if (actionArguments.getSituation() == Action.SITUATION_PUSH_OPENED) {
-                            return autoLaunchMessageCenter;
-                        }
-
-                        return true;
-                    }
-                });
-
-        airship.getActionRegistry()
-                .getEntry(OpenRichPushInboxAction.DEFAULT_REGISTRY_NAME)
-                .setPredicate(new ActionRegistry.Predicate() {
-                    @Override
-                    public boolean apply(ActionArguments actionArguments) {
-                        if (actionArguments.getSituation() == Action.SITUATION_PUSH_OPENED) {
-                            return autoLaunchMessageCenter;
-                        }
-
-                        return true;
-                    }
-                });
-
         airship.getPushManager().setNotificationFactory(factory);
-
-
-        UAirship.shared().getInbox().addListener(new RichPushInbox.Listener() {
-            @Override
-            public void onInboxUpdated() {
-                UAirshipPluginManager.shared().inboxUpdated();
-            }
-        });
-
-        // Send AirshipReady intent for other plugins that depend on UA
-        Intent readyIntent = new Intent(ACTION_AIRSHIP_READY)
-                .setPackage(UAirship.getPackageName())
-                .addCategory(UAirship.getPackageName());
-
-        context.sendBroadcast(readyIntent, UAirship.getUrbanAirshipPermission());
     }
 
     /**

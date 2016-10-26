@@ -27,30 +27,26 @@
 #import "UAPush.h"
 #import "UAirship.h"
 #import "UAAnalytics.h"
-#import "UALocation.h"
+#import "UALocationService.h"
 #import "UAConfig.h"
 #import "NSJSONSerialization+UAAdditions.h"
 #import "UAActionRunner.h"
 #import "UADefaultMessageCenter.h"
-#import "UAInAppMessaging.h"
 #import "UAInbox.h"
 #import "UAInboxMessageList.h"
 #import "UAInboxMessage.h"
 #import "UALandingPageOverlayController.h"
 #import "UAMessageViewController.h"
 #import "UAUtils.h"
-#import "UADefaultMessageCenter.h"
-#import "UAAssociatedIdentifiers.h"
 
 typedef void (^UACordovaCompletionHandler)(CDVCommandStatus, id);
 typedef void (^UACordovaExecutionBlock)(NSArray *args, UACordovaCompletionHandler completionHandler);
 
 @interface UAirshipPlugin()
-@property (nonatomic, strong) UANotificationResponse *launchNotificationResponse;
-@property (nonatomic, copy) NSString *listenerCallbackID;
-@property (nonatomic, copy) NSString *deepLink;
-@property (nonatomic, assign) BOOL autoLaunchMessageCenter;
-@property (nonatomic, strong) NSMutableDictionary *pendingEvents;
+@property (nonatomic, copy) NSDictionary *launchNotification;
+@property (nonatomic, copy) NSString *registrationCallbackID;
+@property (nonatomic, copy) NSString *pushCallbackID;
+@property (nonatomic, copy) NSString *inboxCallbackID;
 @end
 
 @implementation UAirshipPlugin
@@ -63,33 +59,13 @@ NSString *const DevelopmentAppSecretConfigKey = @"com.urbanairship.development_a
 NSString *const ProductionConfigKey = @"com.urbanairship.in_production";
 NSString *const EnablePushOnLaunchConfigKey = @"com.urbanairship.enable_push_onlaunch";
 NSString *const ClearBadgeOnLaunchConfigKey = @"com.urbanairship.clear_badge_onlaunch";
+
 NSString *const EnableAnalyticsConfigKey = @"com.urbanairship.enable_analytics";
-NSString *const AutoLaunchMessageCenterKey = @"com.urbanairship.auto_launch_message_center";
-NSString *const NotificationPresentationAlertKey = @"com.urbanairship.ios_foreground_notification_presentation_alert";
-NSString *const NotificationPresentationBadgeKey = @"com.urbanairship.ios_foreground_notification_presentation_badge";
-NSString *const NotificationPresentationSoundKey = @"com.urbanairship.ios_foreground_notification_presentation_sound";
-
-// Events
-NSString *const EventPushReceived = @"urbanairship.push";
-NSString *const EventNotificationOpened = @"urbanairship.notification_opened";
-NSString *const EventInboxUpdated = @"urbanairship.inbox_updated";
-NSString *const EventRegistration = @"urbanairship.registration";
-NSString *const EventDeepLink = @"urbanairship.deep_link";
-
-
 
 - (void)pluginInitialize {
     UA_LINFO("Initializing UrbanAirship cordova plugin.");
 
-    self.pendingEvents = [NSMutableDictionary dictionary];
-
     NSDictionary *settings = self.commandDelegate.settings;
-
-    if (settings[AutoLaunchMessageCenterKey]) {
-        self.autoLaunchMessageCenter = [settings[AutoLaunchMessageCenterKey] boolValue];
-    } else {
-        self.autoLaunchMessageCenter = YES;
-    }
 
     UAConfig *config = [UAConfig config];
     config.productionAppKey = settings[ProductionAppKeyConfigKey];
@@ -117,68 +93,20 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 
     [UAirship push].pushNotificationDelegate = self;
     [UAirship push].registrationDelegate = self;
-    [UAirship inbox].delegate = self;
 
-    // Set the iOS default foreground presentation options if specified in the config else default to None
-    UNNotificationPresentationOptions options = UNNotificationPresentationOptionNone;
-
-    if (settings[NotificationPresentationAlertKey] != nil) {
-        if ([settings[NotificationPresentationAlertKey] boolValue]) {
-            options = options | UNNotificationPresentationOptionAlert;
-        }
+    if ([UALocationService airshipLocationServiceEnabled]) {
+        [[UAirship shared].locationService startReportingSignificantLocationChanges];
     }
-
-    if (settings[NotificationPresentationBadgeKey] != nil) {
-        if ([settings[NotificationPresentationBadgeKey] boolValue]) {
-            options = options | UNNotificationPresentationOptionBadge;
-        }
-    }
-
-    if (settings[NotificationPresentationSoundKey] != nil) {
-        if ([settings[NotificationPresentationSoundKey] boolValue]) {
-            options = options | UNNotificationPresentationOptionSound;
-        }
-    }
-
-    UA_LDEBUG(@"Foreground presentation options from the config: %lu", (unsigned long)options);
-    [UAirship push].defaultPresentationOptions = options;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(inboxUpdated)
                                                  name:UAInboxMessageListUpdatedNotification
                                                object:nil];
-
-    __weak UAirshipPlugin *weakSelf = self;
-    UAAction *customDLA = [UAAction actionWithBlock: ^(UAActionArguments *args, UAActionCompletionHandler handler)  {
-        if ([args.value isKindOfClass:[NSURL class]]) {
-            weakSelf.deepLink = [args.value absoluteString];
-        } else {
-            weakSelf.deepLink = args.value;
-        }
-        
-        NSDictionary *data;
-        data = @{ @"deepLink":weakSelf.deepLink};
-
-        if (![weakSelf notifyListener:EventDeepLink data:data]) {
-            [weakSelf.pendingEvents setValue:data forKey:EventDeepLink];
-        }
-
-        handler([UAActionResult resultWithValue:args.value]);
-    } acceptingArguments:^BOOL(UAActionArguments *arg)  {
-        if (arg.situation == UASituationBackgroundPush || arg.situation == UASituationBackgroundInteractiveButton) {
-            return NO;
-        }
-
-        return [arg.value isKindOfClass:[NSURL class]] || [arg.value isKindOfClass:[NSString class]];
-    }];
-
-    [[UAirship shared].actionRegistry updateAction:customDLA forEntryWithName:kUADeepLinkActionDefaultRegistryName];
 }
 
 - (void)dealloc {
     [UAirship push].pushNotificationDelegate = nil;
     [UAirship push].registrationDelegate = nil;
-    [UAirship inbox].delegate = nil;
 }
 
 /**
@@ -195,7 +123,6 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
      NSArray --> Array
      NSDictionary --> Object
      NSNull --> no return value
-     nil -> no return value
      */
 
     // String
@@ -230,11 +157,6 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
         return [CDVPluginResult resultWithStatus:status];
     }
 
-    // Nil
-    if (!value) {
-        return [CDVPluginResult resultWithStatus:status];
-    }
-
     UA_LERR(@"Cordova callback block returned unrecognized type: %@", NSStringFromClass([value class]));
     return [CDVPluginResult resultWithStatus:status];
 }
@@ -260,24 +182,64 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
     }];
 }
 
-#pragma mark Phonegap bridge
 
-- (void)registerListener:(CDVInvokedUrlCommand *)command {
-    self.listenerCallbackID = command.callbackId;
+/**
+ * Helper method to parse the alert from a notification.
+ *
+ * @param userInfo The notification.
+ * @return The notification's alert.
+ */
+- (NSString *)alertForUserInfo:(NSDictionary *)userInfo {
+    NSString *alert = @"";
 
-    for (NSString *event in self.pendingEvents) {
-        [self notifyListener:event data:self.pendingEvents[event]];
+    if ([[userInfo allKeys] containsObject:@"aps"]) {
+        NSDictionary *apsDict = [userInfo objectForKey:@"aps"];
+        //TODO: what do we want to do in the case of a localized alert dictionary?
+        if ([[apsDict valueForKey:@"alert"] isKindOfClass:[NSString class]]) {
+            alert = [apsDict valueForKey:@"alert"];
+        }
     }
 
-    [self.pendingEvents removeAllObjects];
+    return alert;
+}
+
+/**
+ * Helper method to parse the extras from a notification.
+ *
+ * @param userInfo The notification.
+ * @return The notification's extras.
+ */
+- (NSMutableDictionary *)extrasForUserInfo:(NSDictionary *)userInfo {
+
+    // remove extraneous key/value pairs
+    NSMutableDictionary *extras = [NSMutableDictionary dictionaryWithDictionary:userInfo];
+
+    if([[extras allKeys] containsObject:@"aps"]) {
+        [extras removeObjectForKey:@"aps"];
+    }
+    if([[extras allKeys] containsObject:@"_"]) {
+        [extras removeObjectForKey:@"_"];
+    }
+
+    return extras;
+}
+
+#pragma mark Phonegap bridge
+
+- (void)registerChannelListener:(CDVInvokedUrlCommand *)command {
+    self.registrationCallbackID = command.callbackId;
+}
+
+- (void)registerPushListener:(CDVInvokedUrlCommand *)command {
+    self.pushCallbackID = command.callbackId;
 }
 
 - (void)setNotificationTypes:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        UANotificationOptions types = [[args objectAtIndex:0] intValue];
+        UIUserNotificationType types = [[args objectAtIndex:0] intValue];
 
         UA_LDEBUG(@"Setting notification types: %ld", (long)types);
-        [UAirship push].notificationOptions = types;
+        [UAirship push].userNotificationTypes = types;
         [[UAirship push] updateRegistration];
 
         completionHandler(CDVCommandStatus_OK, nil);
@@ -296,19 +258,16 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
     }];
 }
 
-- (void)setDisplayASAPEnabled:(CDVInvokedUrlCommand *)command {
-    [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        BOOL enabled = [[args objectAtIndex:0] boolValue];
-        [UAirship inAppMessaging].displayASAPEnabled = enabled;
-        
-        completionHandler(CDVCommandStatus_OK, nil);
-    }];
-}
-
 - (void)setLocationEnabled:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
         BOOL enabled = [[args objectAtIndex:0] boolValue];
-        [UAirship location].locationUpdatesEnabled = enabled;
+        [UALocationService setAirshipLocationServiceEnabled:enabled];
+
+        if (enabled) {
+            [[UAirship shared].locationService startReportingSignificantLocationChanges];
+        } else {
+            [[UAirship shared].locationService stopReportingSignificantLocationChanges];
+        }
 
         completionHandler(CDVCommandStatus_OK, nil);
     }];
@@ -317,7 +276,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 - (void)setBackgroundLocationEnabled:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
         BOOL enabled = [[args objectAtIndex:0] boolValue];
-        [UAirship location].backgroundLocationUpdatesAllowed = enabled;
+        [UAirship shared].locationService.backgroundLocationServiceEnabled = enabled;
 
         completionHandler(CDVCommandStatus_OK, nil);
     }];
@@ -328,19 +287,6 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
         NSNumber *value = [args objectAtIndex:0];
         BOOL enabled = [value boolValue];
         [UAirship shared].analytics.enabled = enabled;
-
-        completionHandler(CDVCommandStatus_OK, nil);
-    }];
-}
-
-- (void)setAssociatedIdentifier:(CDVInvokedUrlCommand *)command {
-    [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        NSString *key = [args objectAtIndex:0];
-        NSString *identifier = [args objectAtIndex:1];
-
-        UAAssociatedIdentifiers *identifiers = [[UAirship shared].analytics currentAssociatedDeviceIdentifiers];
-        [identifiers setIdentifier:identifier forKey:key];
-        [[UAirship shared].analytics associateDeviceIdentifiers:identifiers];
 
         completionHandler(CDVCommandStatus_OK, nil);
     }];
@@ -396,39 +342,38 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 
 - (void)isLocationEnabled:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        BOOL enabled = [UAirship location].locationUpdatesEnabled;
+        BOOL enabled = [UALocationService airshipLocationServiceEnabled];
         completionHandler(CDVCommandStatus_OK, [NSNumber numberWithBool:enabled]);
     }];
 }
 
 - (void)isBackgroundLocationEnabled:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        BOOL enabled = [UAirship location].backgroundLocationUpdatesAllowed;
+        BOOL enabled = [UAirship shared].locationService.backgroundLocationServiceEnabled;
         completionHandler(CDVCommandStatus_OK, [NSNumber numberWithBool:enabled]);
     }];
 }
 
 - (void)getLaunchNotification:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        id event = [self pushEventFromNotification:self.launchNotificationResponse.notificationContent];
+        NSString *incomingAlert = @"";
+        NSMutableDictionary *incomingExtras = [NSMutableDictionary dictionary];
 
-        if ([args firstObject]) {
-            self.launchNotificationResponse = nil;
+        if (self.launchNotification) {
+            incomingAlert = [self alertForUserInfo:self.launchNotification];
+            [incomingExtras setDictionary:[self extrasForUserInfo:self.launchNotification]];
         }
 
-        completionHandler(CDVCommandStatus_OK, event);
-    }];
-}
+        NSMutableDictionary *returnDictionary = [NSMutableDictionary dictionary];
 
-- (void)getDeepLink:(CDVInvokedUrlCommand *)command {
-    [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        NSString *deepLink = self.deepLink;
+        [returnDictionary setObject:incomingAlert forKey:@"message"];
+        [returnDictionary setObject:incomingExtras forKey:@"extras"];
 
         if ([args firstObject]) {
-            self.deepLink = nil;
+            self.launchNotification = nil;
         }
 
-        completionHandler(CDVCommandStatus_OK, deepLink);
+        completionHandler(CDVCommandStatus_OK, returnDictionary);
     }];
 }
 
@@ -496,7 +441,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 
 - (void)getNamedUser:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        completionHandler(CDVCommandStatus_OK, [UAirship namedUser].identifier ?: @"");
+        completionHandler(CDVCommandStatus_OK, [UAirship push].namedUser.identifier ?: @"");
     }];
 }
 
@@ -579,7 +524,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
         NSString *namedUserID = [args objectAtIndex:0];
         namedUserID = [namedUserID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
-        [UAirship namedUser].identifier = [namedUserID length] ? namedUserID : nil;
+        [UAirship push].namedUser.identifier = [namedUserID length] ? namedUserID : nil;
 
         completionHandler(CDVCommandStatus_OK, nil);
     }];
@@ -588,7 +533,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 - (void)editNamedUserTagGroups:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
 
-        UANamedUser *namedUser = [UAirship namedUser];
+        UANamedUser *namedUser = [UAirship push].namedUser;
         for (NSDictionary *operation in [args objectAtIndex:0]) {
             NSString *group = operation[@"group"];
             if ([operation[@"operation"] isEqualToString:@"add"]) {
@@ -631,6 +576,14 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
     }];
 }
 
+- (void)recordCurrentLocation:(CDVInvokedUrlCommand *)command {
+    [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
+        [[UAirship shared].locationService reportCurrentLocation];
+
+        completionHandler(CDVCommandStatus_OK, nil);
+    }];
+}
+
 - (void)runAction:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
         NSString *actionName = [args firstObject];
@@ -657,13 +610,6 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
                             }
                         }];
 
-    }];
-}
-
-- (void)isAppNotificationsEnabled:(CDVInvokedUrlCommand *)command {
-    [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        BOOL optedIn = [UAirship push].authorizedNotificationOptions != 0;
-        completionHandler(CDVCommandStatus_OK, [NSNumber numberWithBool:optedIn]);
     }];
 }
 
@@ -697,59 +643,50 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 - (void)registrationSucceededForChannelID:(NSString *)channelID deviceToken:(NSString *)deviceToken {
     UA_LINFO(@"Channel registration successful %@.", channelID);
 
-    NSDictionary *data;
-    if (deviceToken) {
-        data = @{ @"channelID":channelID, @"deviceToken":deviceToken };
-    } else {
-        data = @{ @"channelID":channelID };
+    if (self.registrationCallbackID) {
+        NSDictionary *data;
+        if (deviceToken) {
+            data = @{ @"channelID":channelID, @"deviceToken":deviceToken };
+        } else {
+            data = @{ @"channelID":channelID };
+        }
+        CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:data];
+        [result setKeepCallbackAsBool:YES];
+        [self.commandDelegate sendPluginResult:result callbackId:self.registrationCallbackID];
     }
-
-    [self notifyListener:EventRegistration data:data];
 }
 
 - (void)registrationFailed {
     UA_LINFO(@"Channel registration failed.");
-    [self notifyListener:EventRegistration data:@{ @"error": @"Registration failed." }];
+
+    if (self.registrationCallbackID) {
+        NSDictionary *data = @{ @"error": @"Registration failed." };
+        CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:data];
+        [result setKeepCallbackAsBool:YES];
+        [self.commandDelegate sendPluginResult:result callbackId:self.registrationCallbackID];
+    }
 }
 
 #pragma mark UAPushNotificationDelegate
 
-- (void)receivedNotificationResponse:(UANotificationResponse *)notificationResponse completionHandler:(void(^)())completionHandler {
-    if ([notificationResponse.actionIdentifier isEqualToString:UANotificationDefaultActionIdentifier]) {
-        UA_LDEBUG(@"The application was launched or resumed from a notification %@", notificationResponse);
-
-        self.launchNotificationResponse = notificationResponse;
-
-        id event = [self pushEventFromNotification:notificationResponse.notificationContent];
-        if (![self notifyListener:EventNotificationOpened data:event]) {
-            [self.pendingEvents setValue:event forKey:EventNotificationOpened];
-        }
-    }
-
-    completionHandler();
+- (void)launchedFromNotification:(NSDictionary *)notification {
+    UA_LDEBUG(@"The application was launched or resumed from a notification %@", [notification description]);
+    self.launchNotification = notification;
 }
 
-- (void)receivedForegroundNotification:(UANotificationContent *)notificationContent completionHandler:(void(^)())completionHandler {
-    UA_LDEBUG(@"Received a notification while the app was already in the foreground %@", notificationContent);
+- (void)receivedForegroundNotification:(NSDictionary *)notification {
+    UA_LDEBUG(@"Received a notification while the app was already in the foreground %@", [notification description]);
 
     [[UAirship push] setBadgeNumber:0]; // zero badge after push received
 
-    id event = [self pushEventFromNotification:notificationContent];
-    [self notifyListener:EventPushReceived data:event];
-    completionHandler();
-}
+    if (self.pushCallbackID) {
+        NSMutableDictionary *data = [NSMutableDictionary dictionary];
+        [data setValue:[self alertForUserInfo:notification] forKey:@"message"];
+        [data setValue:[self extrasForUserInfo:notification] forKey:@"extras"];
 
-#pragma mark UAInboxDelegate
-
-- (void)showInboxMessage:(UAInboxMessage *)message {
-    if (self.autoLaunchMessageCenter) {
-        [[UAirship defaultMessageCenter] displayMessage:message];
-    }
-}
-
-- (void)showInbox {
-    if (self.autoLaunchMessageCenter) {
-        [[UAirship defaultMessageCenter] display];
+        CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:data];
+        [result setKeepCallbackAsBool:YES];
+        [self.commandDelegate sendPluginResult:result callbackId:self.pushCallbackID];
     }
 }
 
@@ -757,18 +694,25 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 
 - (void)displayMessageCenter:(CDVInvokedUrlCommand *)command {
     [self performCallbackWithCommand:command withBlock:^(NSArray *args, UACordovaCompletionHandler completionHandler) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[UAirship defaultMessageCenter] display];
-        });
+        [[UAirship defaultMessageCenter] display];
         completionHandler(CDVCommandStatus_OK, nil);
     }];
 }
 
 #pragma mark Inbox
 
+- (void)registerInboxListener:(CDVInvokedUrlCommand *)command {
+    self.inboxCallbackID = command.callbackId;
+}
+
 - (void)inboxUpdated {
     UA_LDEBUG(@"Inbox updated");
-    [self notifyListener:EventInboxUpdated data:nil];
+
+    if (self.inboxCallbackID) {
+        CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+        [result setKeepCallbackAsBool:YES];
+        [self.commandDelegate sendPluginResult:result callbackId:self.inboxCallbackID];
+    }
 }
 
 - (void)getInboxMessages:(CDVInvokedUrlCommand *)command {
@@ -847,10 +791,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
 
         UINavigationController *navController =  [[UINavigationController alloc] initWithRootViewController:mvc];
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[UAUtils topController] presentViewController:navController animated:YES completion:nil];
-        });
-
+        [[UAUtils topController] presentViewController:navController animated:YES completion:nil];
         completionHandler(CDVCommandStatus_OK, nil);
     }];
 }
@@ -866,10 +807,7 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
             return;
         }
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [UALandingPageOverlayController showMessage:message];
-        });
-
+        [UALandingPageOverlayController showMessage:message];
         completionHandler(CDVCommandStatus_OK, nil);
     }];
 }
@@ -883,46 +821,5 @@ NSString *const EventDeepLink = @"urbanairship.deep_link";
         }];
     }];
 }
-
-- (BOOL)notifyListener:(NSString *)eventType data:(NSDictionary *)data {
-    if (!self.listenerCallbackID) {
-        UA_LTRACE(@"Listener callback unavailable.  event %@", eventType);
-        return NO;
-    }
-
-    NSMutableDictionary *message = [NSMutableDictionary dictionary];
-    [message setValue:eventType forKey:@"eventType"];
-    [message setValue:data forKey:@"eventData"];
-
-    CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:message];
-    [result setKeepCallbackAsBool:YES];
-
-    [self.commandDelegate sendPluginResult:result callbackId:self.listenerCallbackID];
-    return YES;
-}
-
-
-- (id)pushEventFromNotification:(UANotificationContent *)notificationContent {
-    if (!notificationContent) {
-        return @{ @"message": @"", @"extras": @{}};
-    }
-
-    // remove extraneous key/value pairs
-    NSMutableDictionary *extras = [NSMutableDictionary dictionaryWithDictionary:notificationContent.notificationInfo];
-
-    if([[extras allKeys] containsObject:@"aps"]) {
-        [extras removeObjectForKey:@"aps"];
-    }
-
-    if([[extras allKeys] containsObject:@"_"]) {
-        [extras removeObjectForKey:@"_"];
-    }
-
-    NSMutableDictionary *result = [NSMutableDictionary dictionary];
-    result[@"message"] = notificationContent.alertBody ?: @"";
-    result[@"extras"] = extras;
-    return result;
-}
-
 
 @end

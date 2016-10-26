@@ -26,13 +26,7 @@ Please contact support@urbanairship.com for any issues integrating or using this
 
         cordova plugin add urbanairship-cordova
 
-2. Modify the config.xml file to set the Android minimum sdk version to 16:
-
-        <platform name="android">
-            <preference name="android-minSdkVersion" value="16" />
-        </platform> 
-
-3. Modify the config.xml file to contain (replacing with your configuration settings):
+2. Modify the config.xml file to contain (replacing with your configuration settings):
 
         <!-- Urban Airship app credentials -->
         <preference name="com.urbanairship.production_app_key" value="Your Production App Key" />
@@ -57,9 +51,6 @@ Please contact support@urbanairship.com for any issues integrating or using this
 
         <!-- Override the Android notification icon -->
         <preference name="com.urbanairship.notification_icon" value="ic_notification" />
-
-        <!-- Override the Android notification large icon -->
-        <preference name="com.urbanairship.notification_large_icon" value="ic_notification_large" />
     
         <!-- Override the Android notification sound (sound file should be in res/raw)-->
         <preference name="com.urbanairship.notification_sound" value="push" />
@@ -70,31 +61,13 @@ Please contact support@urbanairship.com for any issues integrating or using this
         <!-- Clear the iOS badge on launch -->
         <preference name="com.urbanairship.clear_badge_onlaunch" value="true | false" />
 
-        <!-- Enables/disables auto launching the message center when the corresponding push is opened. -->
-        <preference name="com.urbanairship.auto_launch_message_center" value="true | false" />
 
-        <!-- iOS 10 alert foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_alert" value="true"/>
+3. Enable user notifications
 
-        <!-- iOS 10 badge foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_badge" value="true"/>
-
-        <!-- iOS 10 sound foreground notification presentation option -->
-        <preference name="com.urbanairship.ios_foreground_notification_presentation_sound" value="true"/>
-
-
-4. Enable user notifications
-```
     // Enable user notifications (will prompt the user to accept push notifications)
     UAirship.setUserNotificationsEnabled(true, function (enabled) {
         console.log("User notifications are enabled! Fire away!")
     })
-```
-
-#### iOS
-Enable Push Notifications in the project editor's Capabilities pane:
-
-![Alt text](phonegap-enable-push.png?raw=true "Enable Push Notifications")
 
 ### Sample
 

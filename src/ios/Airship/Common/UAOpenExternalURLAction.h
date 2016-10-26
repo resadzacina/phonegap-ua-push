@@ -50,14 +50,14 @@ extern NSString * const UAOpenExternalURLActionErrorDomain;
  * Expected argument values: NSString
  *
  * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush
- * UASituationWebViewInvocation, UASituationForegroundInteractiveButton,
- * UASituationManualInvocation, and UASituationAutomation
+ * UASituationWebViewInvocation, UASituationForegroundInteractiveButton, and
+ * UASituationManualInvocation
  *
  * Result value: An NSString representation of the input
  *
  * Error: `UAOpenExternalURLActionErrorCodeURLFailedToOpen` if the URL could not be opened
  *
- * Fetch result: UAActionFetchResultNoData
+ * Fetch result: UAActionFetchResultNone
  */
 @interface UAOpenExternalURLAction : UAAction
 

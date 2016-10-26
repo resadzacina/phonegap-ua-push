@@ -26,10 +26,10 @@
           }
         }
 
-         // Notification opened callback
-        var notificationOpened = function(event) {
+         // Incoming message callback
+        var onLaunchedFromPush = function(event) {
           if (event.message) {
-            console.log("Notification opened: " + event.message)
+            console.log("Launched from push: " + event.message)
           } else {
             console.log("No incoming message")
           }
@@ -45,22 +45,16 @@
           }
         }
 
-        // Deep link callback
-        var handleDeepLink = function(event)  {
-            console.log("Deep link: " + event.deepLink)
-        }
-
         // Register for any urban airship events
         document.addEventListener("urbanairship.registration", onRegistration, false)
         document.addEventListener("urbanairship.push", onPushReceived, false)
-        document.addEventListener("urbanairship.notification_opened", notificationOpened, false)
-        document.addEventListener("urbanairship.deep_link", handleDeepLink, false)
         
         // Handle resume
         document.addEventListener("resume", function() {
           console.log("Device resume!")
           
           UAirship.resetBadge()
+          UAirship.getLaunchNotification(true, onLaunchedFromPush)
 
           // Reregister for urbanairship events if they were removed in pause event
           document.addEventListener("urbanairship.registration", onRegistration, false)
@@ -80,6 +74,7 @@
         initiateUI()
         
         // Get the launch notification if its available.
+        UAirship.getLaunchNotification(true, onLaunchedFromPush)
       }
 
       // Initiates the UI and sets up any UI callbacks
@@ -104,10 +99,10 @@
           })
         }
 
-        // Set the namedUser in the UI
-        var setNamedUser = function(namedUser) {
-          $("#namedUser").text(namedUser)
-          $("#setNamedUserField").val("")
+        // Set the alias in the UI
+        var setAlias = function(alias) {
+          $("#alias").text(alias)
+          $("#setAliasField").val("")
         }
 
         // Vibrate and Sound is only available on Android
@@ -144,10 +139,10 @@
           }
         })
 
-        UAirship.getNamedUser(function(namedUser) {
-          if(namedUser) {
-            console.log("Got namedUser: " + namedUser)
-            setNamedUser(namedUser)
+        UAirship.getAlias(function(alias) {
+          if(alias) {
+            console.log("Got alias: " + alias)
+            setAlias(alias)
           }
         })
 
@@ -224,10 +219,10 @@
           })
         })
 
-        $("#setNamedUserButton").click(function(ev) {
-          var namedUser = $("#setNamedUserField").val()
-          UAirship.setNamedUser(namedUser, function() {
-            setNamedUser(namedUser)
+        $("#setAliasButton").click(function(ev) {
+          var alias = $("#setAliasField").val()
+          UAirship.setAlias(alias, function() {
+            setAlias(alias)
           })
         })
       }
@@ -253,9 +248,9 @@
             <label for="id">Channel ID:</label><br />
             <span name="id" id="id" style="word-wrap: break-word;"></span>
             <center><h3>Push Settings</h3></center>
-            <label>NamedUser: </label>
-            <span name="namedUser" id="namedUser"></span><hr />
-            <input type="text" name="setNamedUserField" id="setNamedUserField" style="width:96.5%;" /> <input type="button" id="setNamedUserButton" value="Set namedUser" />
+            <label>Alias: </label>
+            <span name="alias" id="alias"></span><hr />
+            <input type="text" name="setAliasField" id="setAliasField" style="width:96.5%;" /> <input type="button" id="setAliasButton" value="Set alias" />
           </div>
 
           <div data-role="controlgroup">

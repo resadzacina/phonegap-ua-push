@@ -90,10 +90,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)associateDeviceIdentifiers:(UAAssociatedIdentifiers *)associatedIdentifiers;
 
 /**
- * The device's current associated identifiers.
- * @return The device's current associated identifiers.
+ * Handle incoming push notifications.
+ * @param userInfo The notification as an NSDictionary.
+ * @param applicationState The application state at the time the notification was received.
  */
-- (UAAssociatedIdentifiers *)currentAssociatedDeviceIdentifiers;
+- (void)handleNotification:(NSDictionary*)userInfo inApplicationState:(UIApplicationState)applicationState;
 
 /**
  * Date representing the last attempt to send analytics.

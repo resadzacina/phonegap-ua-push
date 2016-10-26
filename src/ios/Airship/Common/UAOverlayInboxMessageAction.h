@@ -36,8 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
  * to look for the message in the argument's metadata.
  *
  * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush, UASituationWebViewInvocation,
- * UASituationManualInvocation, UASituationForegroundInteractiveButton, and
- * UASituationAutomation.
+ * UASituationManualInvocation, and UASituationForegroundInteractiveButton.
  *
  * Result value: nil
  *

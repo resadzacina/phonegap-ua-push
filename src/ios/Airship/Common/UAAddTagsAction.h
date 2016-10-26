@@ -33,16 +33,13 @@
  *
  * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush
  * UASituationWebViewInvocation, UASituationForegroundInteractiveButton,
- * UASituationBackgroundInteractiveButton, UASituationManualInvocation, and
- * UASituationAutomation
- *
- * Default predicate: Rejects foreground pushes with visible display options on iOS 10 and above
+ * UASituationBackgroundInteractiveButton and UASituationManualInvocation
  *
  * Result value: nil
  *
  * Error: nil
  *
- * Fetch result: UAActionFetchResultNoData
+ * Fetch result: UAActionFetchResultNone
  */
 @interface UAAddTagsAction : UAModifyTagsAction
 

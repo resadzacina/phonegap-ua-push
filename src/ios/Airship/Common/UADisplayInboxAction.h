@@ -47,7 +47,7 @@ NS_ASSUME_NONNULL_BEGIN
  *
  * Valid situations: UASituationForegroundPush, UASituationLaunchedFromPush,
  * UASituationWebViewInvocation, UASituationManualInvocation,
- * UASituationForegroundInteractiveButton, and UASituationAutomation
+ * and UASituationForegroundInteractiveButton
  *
  * Result value: nil
  */
